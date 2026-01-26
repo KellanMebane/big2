@@ -1,0 +1,9 @@
+[package]
+name = "big2"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+enum-utils = "0.1.2"
+rand = "*"
+itertools = "*"
