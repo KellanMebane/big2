@@ -1,7 +1,6 @@
 use crate::card::*;
 use crate::player::PlayerTurn::*;
 use crate::player::*;
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -22,30 +21,6 @@ impl TryFrom<usize> for HandSize {
             3 => Ok(HandSize::Triples),
             5 => Ok(HandSize::FiveCardHand),
             _ => Err(()),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(u8)]
-pub enum FiveCardRank {
-    Straight(Card) = 0,
-    Flush(Card) = 1,
-    FullHouse(Card) = 2,
-    FourOfAKind(Card) = 3,
-    StraightFlush(Card) = 4,
-}
-
-//  NOTE: might be useful...
-impl FiveCardRank {
-    // Helper to extract the inner Card for comparison
-    fn _lead_card(&self) -> Card {
-        match *self {
-            Self::Straight(c)
-            | Self::Flush(c)
-            | Self::FullHouse(c)
-            | Self::FourOfAKind(c)
-            | Self::StraightFlush(c) => c,
         }
     }
 }
@@ -88,7 +63,7 @@ impl Game {
         }
 
         // 3. logic for five card hands
-        let hand_rank = match self.get_five_card_hand_rank(sub_hand) {
+        let hand_rank = match get_five_card_hand_rank(sub_hand) {
             Some(r) => r,
             None => return false,
         };
@@ -97,53 +72,11 @@ impl Game {
             return true;
         }
 
-        let discard_rank = self
-            .get_five_card_hand_rank(self.hand_on_top())
+        let discard_rank = get_five_card_hand_rank(self.hand_on_top())
             .expect("top of discard must be valid 5-card hand");
 
         // compares enum variant first, then the inner Card rank/suit
         hand_rank > discard_rank
-    }
-
-    //  TODO: need to implement wrap-around logic for straights
-    pub fn get_five_card_hand_rank(&self, sub_hand: &[Card]) -> Option<FiveCardRank> {
-        if sub_hand.len() != 5 {
-            return None;
-        }
-
-        let is_flush = sub_hand.windows(2).all(|w| w[0].suit == w[1].suit);
-        let is_straight = {
-            let mut ranks: Vec<_> = sub_hand.iter().map(|c| c.rank as u32).collect();
-            ranks.sort_unstable();
-            ranks.windows(2).all(|w| w[1] == w[0] + 1)
-        };
-
-        let max_card = *sub_hand.iter().max()?;
-
-        if is_straight && is_flush {
-            return Some(FiveCardRank::StraightFlush(max_card));
-        }
-        if is_straight {
-            return Some(FiveCardRank::Straight(max_card));
-        }
-        if is_flush {
-            return Some(FiveCardRank::Flush(max_card));
-        }
-
-        // handle full house and four of a kind
-        let mut counts = HashMap::new();
-        for card in sub_hand {
-            *counts.entry(card.rank).or_insert(0) += 1;
-        }
-
-        let (&lead_rank, &max_count) = counts.iter().max_by_key(|&(&r, &c)| (c, r))?;
-        let lead_card = *sub_hand.iter().filter(|c| c.rank == lead_rank).max()?;
-
-        match max_count {
-            4 => Some(FiveCardRank::FourOfAKind(lead_card)),
-            3 => Some(FiveCardRank::FullHouse(lead_card)),
-            _ => None,
-        }
     }
 
     pub fn hand_on_top(&self) -> &[Card] {
@@ -158,6 +91,8 @@ impl Game {
 
 #[cfg(test)]
 mod tests {
+    use crate::card;
+
     use super::*;
 
     #[test]
@@ -194,26 +129,21 @@ mod tests {
         assert!(game.valid_discard(&sub_hand));
     }
 
-    // helper to generate a basic card quickly
-    fn card(rank: CardRank, suit: CardSuit) -> Card {
-        Card { rank, suit }
-    }
-
     #[test]
     fn test_hand_size_transitions() {
         let game = Game::default(); // starts as HandSize::Free
 
         // branch: Free -> Singles (valid)
-        assert!(game.valid_discard(&[card(CardRank::Five, CardSuit::Clubs)]));
+        assert!(game.valid_discard(&[card::tests::card(CardRank::Five, CardSuit::Clubs)]));
 
         // branch: Free -> invalid count (4 cards)
-        let four_cards = vec![card(CardRank::Five, CardSuit::Clubs); 4];
+        let four_cards = vec![card::tests::card(CardRank::Five, CardSuit::Clubs); 4];
         assert!(!game.valid_discard(&four_cards));
 
         // branch: Free -> Doubles (valid)
         let pair = vec![
-            card(CardRank::Five, CardSuit::Clubs),
-            card(CardRank::Five, CardSuit::Diamonds),
+            card::tests::card(CardRank::Five, CardSuit::Clubs),
+            card::tests::card(CardRank::Five, CardSuit::Diamonds),
         ];
         assert!(game.valid_discard(&pair));
     }
@@ -227,8 +157,8 @@ mod tests {
         };
 
         let mismatch = vec![
-            card(CardRank::Five, CardSuit::Clubs),
-            card(CardRank::Six, CardSuit::Clubs),
+            card::tests::card(CardRank::Five, CardSuit::Clubs),
+            card::tests::card(CardRank::Six, CardSuit::Clubs),
         ];
         assert!(
             !game.valid_discard(&mismatch),
@@ -236,8 +166,8 @@ mod tests {
         );
 
         let match_pair = vec![
-            card(CardRank::Five, CardSuit::Clubs),
-            card(CardRank::Five, CardSuit::Diamonds),
+            card::tests::card(CardRank::Five, CardSuit::Clubs),
+            card::tests::card(CardRank::Five, CardSuit::Diamonds),
         ];
         assert!(
             game.valid_discard(&match_pair),
@@ -250,22 +180,22 @@ mod tests {
         // setup game with a 3 of spades on top (singles)
         let game = Game {
             hand_size: HandSize::Singles,
-            discard: vec![card(CardRank::Four, CardSuit::Spades)],
+            discard: vec![card::tests::card(CardRank::Four, CardSuit::Spades)],
             ..Default::default()
         };
 
         // branch: lower rank played (invalid)
-        assert!(!game.valid_discard(&[card(CardRank::Three, CardSuit::Spades)]));
+        assert!(!game.valid_discard(&[card::tests::card(CardRank::Three, CardSuit::Spades)]));
 
         // branch: same rank, higher suit played (valid)
         // (assuming Card implements Ord where Diamonds > Hearts > Spades > Clubs)
-        assert!(game.valid_discard(&[card(CardRank::Four, CardSuit::Hearts)]));
+        assert!(game.valid_discard(&[card::tests::card(CardRank::Four, CardSuit::Hearts)]));
 
         // branch: higher rank played (valid)
-        assert!(game.valid_discard(&[card(CardRank::Five, CardSuit::Spades)]));
+        assert!(game.valid_discard(&[card::tests::card(CardRank::Five, CardSuit::Spades)]));
 
         // branch: same rank, lower suit played (invalid)
-        assert!(!game.valid_discard(&[card(CardRank::Four, CardSuit::Clubs)]));
+        assert!(!game.valid_discard(&[card::tests::card(CardRank::Four, CardSuit::Clubs)]));
     }
 
     #[test]
@@ -274,11 +204,11 @@ mod tests {
         // even if the played card is lower than the discard, it should be valid
         let game = Game {
             hand_size: HandSize::Free,
-            discard: vec![card(CardRank::Ace, CardSuit::Spades)],
+            discard: vec![card::tests::card(CardRank::Ace, CardSuit::Spades)],
             ..Default::default()
         };
 
-        let low_card = vec![card(CardRank::Three, CardSuit::Clubs)];
+        let low_card = vec![card::tests::card(CardRank::Three, CardSuit::Clubs)];
         assert!(
             game.valid_discard(&low_card),
             "free turn should allow any valid hand size"
@@ -291,85 +221,32 @@ mod tests {
 
         // not a straight (gap), not a flush (mixed), no triplets/quads
         let junk_hand = vec![
-            card(CardRank::Two, CardSuit::Clubs),
-            card(CardRank::Four, CardSuit::Diamonds),
-            card(CardRank::Six, CardSuit::Hearts),
-            card(CardRank::Eight, CardSuit::Spades),
-            card(CardRank::Ten, CardSuit::Clubs),
+            card::tests::card(CardRank::Two, CardSuit::Clubs),
+            card::tests::card(CardRank::Four, CardSuit::Diamonds),
+            card::tests::card(CardRank::Six, CardSuit::Hearts),
+            card::tests::card(CardRank::Eight, CardSuit::Spades),
+            card::tests::card(CardRank::Ten, CardSuit::Clubs),
         ];
 
         assert!(!game.valid_discard(&junk_hand));
     }
 
     #[test]
-    fn test_five_card_rank_detection() {
-        let game = Game::default();
-
-        // straight: 3, 4, 5, 6, 7 mixed suits
-        let straight = vec![
-            card(CardRank::Three, CardSuit::Clubs),
-            card(CardRank::Four, CardSuit::Diamonds),
-            card(CardRank::Five, CardSuit::Hearts),
-            card(CardRank::Six, CardSuit::Spades),
-            card(CardRank::Seven, CardSuit::Clubs),
-        ];
-        assert_eq!(
-            game.get_five_card_hand_rank(&straight),
-            Some(FiveCardRank::Straight(card(
-                CardRank::Seven,
-                CardSuit::Clubs
-            )))
-        );
-
-        // flush: all diamonds, non-sequential
-        let flush = vec![
-            card(CardRank::Three, CardSuit::Diamonds),
-            card(CardRank::Five, CardSuit::Diamonds),
-            card(CardRank::Eight, CardSuit::Diamonds),
-            card(CardRank::Ten, CardSuit::Diamonds),
-            card(CardRank::King, CardSuit::Diamonds),
-        ];
-        assert_eq!(
-            game.get_five_card_hand_rank(&flush),
-            Some(FiveCardRank::Flush(card(
-                CardRank::King,
-                CardSuit::Diamonds
-            )))
-        );
-
-        // full house: three 8s, two 2s
-        let full_house = vec![
-            card(CardRank::Eight, CardSuit::Clubs),
-            card(CardRank::Eight, CardSuit::Diamonds),
-            card(CardRank::Eight, CardSuit::Spades),
-            card(CardRank::Two, CardSuit::Hearts),
-            card(CardRank::Two, CardSuit::Clubs),
-        ];
-        // full house is identified by the triplet's rank
-        match game.get_five_card_hand_rank(&full_house) {
-            Some(FiveCardRank::FullHouse(c)) => assert_eq!(c.rank, CardRank::Eight),
-            _ => panic!("Expected Full House"),
-        }
-
-        //  TODO: need four of a kind
-    }
-
-    #[test]
     fn test_five_card_hierarchy_comparison() {
         let straight = vec![
-            card(CardRank::Ten, CardSuit::Clubs),
-            card(CardRank::Jack, CardSuit::Diamonds),
-            card(CardRank::Queen, CardSuit::Hearts),
-            card(CardRank::King, CardSuit::Spades),
-            card(CardRank::Ace, CardSuit::Clubs),
+            card::tests::card(CardRank::Ten, CardSuit::Clubs),
+            card::tests::card(CardRank::Jack, CardSuit::Diamonds),
+            card::tests::card(CardRank::Queen, CardSuit::Hearts),
+            card::tests::card(CardRank::King, CardSuit::Spades),
+            card::tests::card(CardRank::Ace, CardSuit::Clubs),
         ];
 
         let low_flush = vec![
-            card(CardRank::Two, CardSuit::Clubs),
-            card(CardRank::Four, CardSuit::Clubs),
-            card(CardRank::Five, CardSuit::Clubs),
-            card(CardRank::Seven, CardSuit::Clubs),
-            card(CardRank::Eight, CardSuit::Clubs),
+            card::tests::card(CardRank::Two, CardSuit::Clubs),
+            card::tests::card(CardRank::Four, CardSuit::Clubs),
+            card::tests::card(CardRank::Five, CardSuit::Clubs),
+            card::tests::card(CardRank::Seven, CardSuit::Clubs),
+            card::tests::card(CardRank::Eight, CardSuit::Clubs),
         ];
 
         let game = Game {
@@ -386,11 +263,11 @@ mod tests {
     fn test_weighted_five_card_comparison() {
         // top hand: full house (three 5s, two aces)
         let discard_fh = vec![
-            card(CardRank::Five, CardSuit::Clubs),
-            card(CardRank::Five, CardSuit::Diamonds),
-            card(CardRank::Five, CardSuit::Hearts),
-            card(CardRank::Ace, CardSuit::Spades),
-            card(CardRank::Ace, CardSuit::Clubs),
+            card::tests::card(CardRank::Five, CardSuit::Clubs),
+            card::tests::card(CardRank::Five, CardSuit::Diamonds),
+            card::tests::card(CardRank::Five, CardSuit::Hearts),
+            card::tests::card(CardRank::Ace, CardSuit::Spades),
+            card::tests::card(CardRank::Ace, CardSuit::Clubs),
         ];
 
         let game = Game {
@@ -401,22 +278,22 @@ mod tests {
 
         // player attempts full house (three 6s, two 2s)
         let player_fh = vec![
-            card(CardRank::Six, CardSuit::Clubs),
-            card(CardRank::Six, CardSuit::Diamonds),
-            card(CardRank::Six, CardSuit::Hearts),
-            card(CardRank::Two, CardSuit::Spades),
-            card(CardRank::Two, CardSuit::Clubs),
+            card::tests::card(CardRank::Six, CardSuit::Clubs),
+            card::tests::card(CardRank::Six, CardSuit::Diamonds),
+            card::tests::card(CardRank::Six, CardSuit::Hearts),
+            card::tests::card(CardRank::Two, CardSuit::Spades),
+            card::tests::card(CardRank::Two, CardSuit::Clubs),
         ];
         // 6s > 5s: this should be valid
         assert!(game.valid_discard(&player_fh));
 
         // player attempts four of a kind (Four 3s, One 9)
         let player_foak = vec![
-            card(CardRank::Three, CardSuit::Clubs),
-            card(CardRank::Three, CardSuit::Diamonds),
-            card(CardRank::Three, CardSuit::Hearts),
-            card(CardRank::Three, CardSuit::Spades),
-            card(CardRank::Nine, CardSuit::Clubs),
+            card::tests::card(CardRank::Three, CardSuit::Clubs),
+            card::tests::card(CardRank::Three, CardSuit::Diamonds),
+            card::tests::card(CardRank::Three, CardSuit::Hearts),
+            card::tests::card(CardRank::Three, CardSuit::Spades),
+            card::tests::card(CardRank::Nine, CardSuit::Clubs),
         ];
         // four of a kind (rank 3) > full house (rank 2)
         assert!(game.valid_discard(&player_foak));
