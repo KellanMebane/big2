@@ -63,17 +63,17 @@ impl Game {
         }
 
         // 3. logic for five card hands
-        let hand_rank = match get_five_card_hand_rank(sub_hand) {
-            Some(r) => r,
-            None => return false,
+        let Some(hand_rank) = get_five_card_hand_rank(sub_hand) else {
+            return false;
         };
 
         if self.hand_size == HandSize::Free {
             return true;
         }
 
-        let discard_rank = get_five_card_hand_rank(self.hand_on_top())
-            .expect("top of discard must be valid 5-card hand");
+        let Some(discard_rank) = get_five_card_hand_rank(self.hand_on_top()) else {
+            return false;
+        };
 
         // compares enum variant first, then the inner Card rank/suit
         hand_rank > discard_rank
