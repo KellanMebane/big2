@@ -27,7 +27,7 @@ fn main() {
             .map(|hand| Player { hand })
             .collect(),
         turn: Player1,
-        hand_size: HandSize::Free,
+        hand_size: HandSize::Doubles,
     };
 
     game.players
@@ -65,11 +65,18 @@ fn main() {
             hs => hs as usize,
         };
 
-        game.hand_size = HandSize::Free;
-
         let player = &game.players[game.turn as usize];
 
-        let player_hand = player.hand[..turn_size].to_vec();
+        // let player_hand = player.hand[..turn_size].to_vec();
+        let lowest_card = Card::card(CardRank::Three, CardSuit::Clubs);
+        let top_card = game.hand_on_top().iter().max().unwrap_or(&lowest_card);
+        let player_hand: Vec<Card> = match player.auto_pick_hand(&game.hand_size, top_card) {
+            Some(hand) => hand,
+            None => {
+                println!("{:?} has to pass\n", game.turn);
+                continue;
+            }
+        };
 
         // println!("{:?}", player_hand);
         for card in &player_hand {
@@ -104,5 +111,5 @@ fn main() {
         .collect::<Vec<String>>()
         .join(" ");
 
-    println!("{}", s);
+    println!("\n\ndiscard pile:{}", s);
 }
