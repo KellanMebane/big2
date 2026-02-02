@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{collections::HashMap, fmt};
 
 use enum_utils::IterVariants;
 
@@ -82,4 +82,130 @@ pub fn get_deck() -> Vec<Card> {
         }
     }
     deck
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u8)]
+pub enum FiveCardRank {
+    Straight(Card) = 0,
+    Flush(Card) = 1,
+    FullHouse(Card) = 2,
+    FourOfAKind(Card) = 3,
+    StraightFlush(Card) = 4,
+}
+
+//  NOTE: might be useful...
+impl FiveCardRank {
+    // Helper to extract the inner Card for comparison
+    fn _lead_card(&self) -> Card {
+        match *self {
+            Self::Straight(c)
+            | Self::Flush(c)
+            | Self::FullHouse(c)
+            | Self::FourOfAKind(c)
+            | Self::StraightFlush(c) => c,
+        }
+    }
+}
+
+//  TODO: need to implement wrap-around logic for straights
+pub fn get_five_card_hand_rank(sub_hand: &[Card]) -> Option<FiveCardRank> {
+    if sub_hand.len() != 5 {
+        return None;
+    }
+
+    let is_flush = sub_hand.windows(2).all(|w| w[0].suit == w[1].suit);
+    let is_straight = {
+        let mut ranks: Vec<_> = sub_hand.iter().map(|c| c.rank as u32).collect();
+        ranks.sort_unstable();
+        ranks.windows(2).all(|w| w[1] == w[0] + 1)
+    };
+
+    let max_card = *sub_hand.iter().max()?;
+
+    if is_straight && is_flush {
+        return Some(FiveCardRank::StraightFlush(max_card));
+    }
+    if is_straight {
+        return Some(FiveCardRank::Straight(max_card));
+    }
+    if is_flush {
+        return Some(FiveCardRank::Flush(max_card));
+    }
+
+    // handle full house and four of a kind
+    let mut counts = HashMap::new();
+    for card in sub_hand {
+        *counts.entry(card.rank).or_insert(0) += 1;
+    }
+
+    let (&lead_rank, &max_count) = counts.iter().max_by_key(|&(&r, &c)| (c, r))?;
+    let lead_card = *sub_hand.iter().filter(|c| c.rank == lead_rank).max()?;
+
+    match max_count {
+        4 => Some(FiveCardRank::FourOfAKind(lead_card)),
+        3 => Some(FiveCardRank::FullHouse(lead_card)),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    // helper to generate a basic card quickly
+    pub fn card(rank: CardRank, suit: CardSuit) -> Card {
+        Card { rank, suit }
+    }
+
+    #[test]
+    fn test_five_card_rank_detection() {
+        // straight: 3, 4, 5, 6, 7 mixed suits
+        let straight = vec![
+            card(CardRank::Three, CardSuit::Clubs),
+            card(CardRank::Four, CardSuit::Diamonds),
+            card(CardRank::Five, CardSuit::Hearts),
+            card(CardRank::Six, CardSuit::Spades),
+            card(CardRank::Seven, CardSuit::Clubs),
+        ];
+        assert_eq!(
+            get_five_card_hand_rank(&straight),
+            Some(FiveCardRank::Straight(card(
+                CardRank::Seven,
+                CardSuit::Clubs
+            )))
+        );
+
+        // flush: all diamonds, non-sequential
+        let flush = vec![
+            card(CardRank::Three, CardSuit::Diamonds),
+            card(CardRank::Five, CardSuit::Diamonds),
+            card(CardRank::Eight, CardSuit::Diamonds),
+            card(CardRank::Ten, CardSuit::Diamonds),
+            card(CardRank::King, CardSuit::Diamonds),
+        ];
+        assert_eq!(
+            get_five_card_hand_rank(&flush),
+            Some(FiveCardRank::Flush(card(
+                CardRank::King,
+                CardSuit::Diamonds
+            )))
+        );
+
+        // full house: three 8s, two 2s
+        let full_house = vec![
+            card(CardRank::Eight, CardSuit::Clubs),
+            card(CardRank::Eight, CardSuit::Diamonds),
+            card(CardRank::Eight, CardSuit::Spades),
+            card(CardRank::Two, CardSuit::Hearts),
+            card(CardRank::Two, CardSuit::Clubs),
+        ];
+        // full house is identified by the triplet's rank
+        match get_five_card_hand_rank(&full_house) {
+            Some(FiveCardRank::FullHouse(c)) => assert_eq!(c.rank, CardRank::Eight),
+            _ => panic!("Expected Full House"),
+        }
+
+        //  TODO: need four of a kind
+    }
 }
